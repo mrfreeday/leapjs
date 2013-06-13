@@ -1671,6 +1671,11 @@ var Frame = exports.Frame = function(data) {
    * @type {Leap.Pointable}
    */
 
+  this.interactionBox = {
+    center: new Vector(data.center),
+    size: new Vector(data.size)
+  }
+
   this.fingers = [];
   this.gestures = [];
   this.pointablesMap = {};
