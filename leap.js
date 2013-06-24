@@ -418,6 +418,7 @@ Leap = require("../lib/index").Leap
   , Vector = require("./vector").Vector
   , Matrix = require("./matrix").Matrix
   , Connection = require("./connection").Connection
+  , InteractionBox = require("./interaction_box").InteractionBox
   , CircularBuffer = require("./circular_buffer").CircularBuffer
   , UI = require("./ui").UI
   , loopController = undefined;
@@ -452,7 +453,7 @@ exports.Leap = {
    * @param {function} callback A function called when the browser is ready to
    * draw to the screen. The most recent {@link Frame} object is passed to
    * your callback function.
-   * 
+   *
    * ```javascript
    *    Leap.loop( function( frame ) {
    *        // ... your code here
@@ -472,6 +473,7 @@ exports.Leap = {
   Gesture: Gesture,
   Hand: Hand,
   Pointable: Pointable,
+  InteractionBox: InteractionBox,
   Vector: Vector,
   Matrix: Matrix,
   Connection: Connection,
@@ -480,7 +482,7 @@ exports.Leap = {
 }
 
 })()
-},{"./circular_buffer":5,"./connection":6,"./controller":7,"./frame":8,"./gesture":9,"./hand":10,"./matrix":11,"./pointable":12,"./ui":13,"./vector":14}],5:[function(require,module,exports){
+},{"./circular_buffer":5,"./connection":6,"./controller":7,"./frame":8,"./gesture":9,"./hand":10,"./interaction_box":11,"./matrix":12,"./pointable":13,"./ui":14,"./vector":15}],5:[function(require,module,exports){
 var CircularBuffer = exports.CircularBuffer = function(size) {
   this.pos = 0;
   this._buf = [];
@@ -499,9 +501,9 @@ CircularBuffer.prototype.push = function(o) {
   return this.pos++;
 }
 
-},{}],15:[function(require,module,exports){
-
 },{}],16:[function(require,module,exports){
+
+},{}],17:[function(require,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -555,7 +557,7 @@ process.chdir = function (dir) {
     throw new Error('process.chdir is not supported');
 };
 
-},{}],17:[function(require,module,exports){
+},{}],18:[function(require,module,exports){
 (function(process){if (!process.EventEmitter) process.EventEmitter = function () {};
 
 var EventEmitter = exports.EventEmitter = process.EventEmitter;
@@ -741,7 +743,7 @@ EventEmitter.prototype.listeners = function(type) {
 };
 
 })(require("__browserify_process"))
-},{"__browserify_process":16}],9:[function(require,module,exports){
+},{"__browserify_process":17}],9:[function(require,module,exports){
 var Vector = require("./vector").Vector
 
 /**
@@ -1142,7 +1144,7 @@ var KeyTapGesture = function(data) {
     this.progress = data.progress;
 }
 
-},{"./vector":14}],12:[function(require,module,exports){
+},{"./vector":15}],13:[function(require,module,exports){
 var Vector = require("./vector").Vector
 
 /**
@@ -1313,7 +1315,7 @@ Pointable.prototype.toString = function() {
  */
 Pointable.Invalid = { valid: false };
 
-},{"./vector":14}],6:[function(require,module,exports){
+},{"./vector":15}],6:[function(require,module,exports){
 var Connection = exports.Connection = require('./base_connection').Connection
 
 Connection.prototype.setupSocket = function() {
@@ -1365,12 +1367,148 @@ Connection.prototype.startHeartbeat = function() {
   }, this.opts.heartbeatInterval);
 }
 
-},{"./base_connection":18}],13:[function(require,module,exports){
+},{"./base_connection":19}],11:[function(require,module,exports){
+var Vector = require("./vector").Vector;
+
+/**
+ * The InteractionBox class represents a box-shaped region completely within
+ * the field of view of the Leap Motion controller.
+ *
+ * <p>The interaction box is an axis-aligned rectangular prism and provides
+ * normalized coordinates for hands, fingers, and tools within this box.
+ * The InteractionBox class can make it easier to map positions in the
+ * Leap Motion coordinate system to 2D or 3D coordinate systems used
+ * for application drawing.</p>
+ *
+ * <p>The InteractionBox region is defined by a center and dimensions along the x, y, and z axes.</p>
+ */
+var InteractionBox = exports.InteractionBox = function(data) {
+    /**
+     * Indicates whether this is a valid InteractionBox object.
+     *
+     * @member valid
+     * @type {Boolean}
+     * @memberof Leap.InteractionBox.prototype
+     */
+    this.valid = true;
+    /**
+     * The center of the InteractionBox in device coordinates (millimeters).
+     * <p>This point is equidistant from all sides of the box.</p>
+     *
+     * @member center
+     * @type {Leap.Vector}
+     * @memberof Leap.InteractionBox.prototype
+     */
+    this.center = new Vector(data.center);
+    /**
+     * The width of the InteractionBox in millimeters, measured along the x-axis.
+     *
+     * @member width
+     * @type {Number}
+     * @memberof Leap.InteractionBox.prototype
+     */
+    this.width = data.size[0];
+    /**
+     * The height of the InteractionBox in millimeters, measured along the y-axis.
+     *
+     * @member height
+     * @type {Number}
+     * @memberof Leap.InteractionBox.prototype
+     */
+    this.height = data.size[1];
+    /**
+     * The depth of the InteractionBox in millimeters, measured along the z-axis.
+     *
+     * @member depth
+     * @type {Number}
+     * @memberof Leap.InteractionBox.prototype
+     */
+    this.depth = data.size[2];
+}
+
+/**
+ * Converts a position defined by normalized InteractionBox coordinates
+ * into device coordinates in millimeters.
+ *
+ * <p>This function performs the inverse of normalizePoint().</p>
+ *
+ * @method denormalizePoint
+ * @memberof Leap.InteractionBox.prototype
+ * @param {Leap.Vector} normalizedPosition The input position in InteractionBox coordinates.
+ * @returns {Leap.Vector} The corresponding denormalized position in device coordinates.
+ */
+InteractionBox.prototype.denormalizePoint = function(normalizedPosition) {
+    var vec = new Vector(0,0,0);
+
+    vec.x = ( ( ( normalizedPosition.x + this.center.x ) - 0.5 ) * this.width );
+    vec.y = ( ( ( normalizedPosition.y + this.center.y ) - 0.5 ) * this.height );
+    vec.z = ( ( ( normalizedPosition.z + this.center.z ) - 0.5 ) * this.depth );
+
+    return vec;
+}
+
+/**
+ * Normalizes the coordinates of a point using the interaction box.
+ *
+ * <p>Coordinates from the Leap Motion frame of reference (millimeters) are
+ * converted to a range of [0..1] such that the minimum value of the
+ * InteractionBox maps to 0 and the maximum value of the InteractionBox maps to 1.</p>
+ *
+ * @method normalizePoint
+ * @memberof Leap.InteractionBox.prototype
+ * @param {Leap.Vector} position The input position in device coordinates.
+ * @param {Boolean} clamp Whether or not to limit the output value to the range [0,1]
+ * when the input position is outside the InteractionBox. Defaults to true.
+ * @returns {Leap.Vector} The normalized position.
+ */
+InteractionBox.prototype.normalizePoint = function(position, clamp) {
+    var vec = new Vector(0,0,0);
+
+    vec.x = ( ( position.x - this.center.x ) / this.width ) + 0.5;
+    vec.y = ( ( position.y - this.center.y ) / this.height ) + 0.5;
+    vec.z = ( ( position.z - this.center.z ) / this.depth ) + 0.5;
+
+    if( clamp )
+    {
+        vec.x = Math.min( Math.max( vec.x, 0 ), 1 );
+        vec.y = Math.min( Math.max( vec.y, 0 ), 1 );
+        vec.z = Math.min( Math.max( vec.z, 0 ), 1 );
+    }
+
+    return vec;
+}
+
+/**
+ * Writes a brief, human readable description of the InteractionBox object.
+ *
+ * @method toString
+ * @memberof Leap.InteractionBox.prototype
+ * @returns {String} A description of the InteractionBox object as a string.
+ */
+InteractionBox.prototype.toString = function() {
+    return "InteractionBox [ width:" + this.width + " height:" + this.height + " depth:" + this.depth + " ]";
+}
+
+/**
+ * An invalid InteractionBox object.
+ *
+ * You can use this InteractionBox instance in comparisons testing
+ * whether a given InteractionBox instance is valid or invalid. (You can also use the
+ * InteractionBox.valid property.)
+
+ * @static
+ * @type {Leap.InteractionBox}
+ * @name Invalid
+ * @memberof Leap.InteractionBox
+ */
+InteractionBox.Invalid = { valid: false };
+
+},{"./vector":15}],14:[function(require,module,exports){
 exports.UI = {
   Region: require("./ui/region").Region,
   Cursor: require("./ui/cursor").Cursor
 };
-},{"./ui/cursor":19,"./ui/region":20}],21:[function(require,module,exports){
+},{"./ui/cursor":20,"./ui/region":21}],22:[function(require,module,exports){
 var Pipeline = exports.Pipeline = function() {
   this.steps = [];
 }
@@ -1388,7 +1526,7 @@ Pipeline.prototype.run = function(frame) {
   return frame;
 }
 
-},{}],19:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 var Cursor = exports.Cursor = function() {
   return function(frame) {
     var pointable = frame.pointables.sort(function(a, b) { return a.z - b.z })[0]
@@ -1399,177 +1537,7 @@ var Cursor = exports.Cursor = function() {
   }
 }
 
-},{}],7:[function(require,module,exports){
-var inNode = typeof(window) === 'undefined';
-
-var Frame = require('./frame').Frame
-  , CircularBuffer = require("./circular_buffer").CircularBuffer
-  , Pipeline = require("./pipeline").Pipeline
-  , EventEmitter = require('events').EventEmitter
-  , _ = require('underscore');
-
-/**
- * Constructs a Controller object.
- *
- * When creating a Controller object, you may optionally pass in options
- * to set the host , set the port, enable gestures, or select the frame event type.
- *
- * ```javascript
- * var controller = new Leap.Controller({
- *   host: '127.0.0.1',
- *   port: 6437,
- *   enableGestures: true,
- *   frameEventName: 'animationFrame'
- * });
- * ```
- *
- * @class Controller
- * @memberof Leap
- * @classdesc
- * The Controller class is your main interface to the Leap Motion Controller.
- *
- * Create an instance of this Controller class to access frames of tracking data
- * and configuration information. Frame data can be polled at any time using the
- * [Controller.frame]{@link Leap.Controller#frame}() function. Call frame() or frame(0) to get the most recent
- * frame. Set the history parameter to a positive integer to access previous frames.
- * A controller stores up to 60 frames in its frame history.
- *
- * Polling is an appropriate strategy for applications which already have an
- * intrinsic update loop, such as a game.
- */
-var Controller = exports.Controller = function(opts) {
-  this.opts = _.defaults(opts || {}, {
-    frameEventName: this.useAnimationLoop() ? 'animationFrame' : 'connectionFrame'
-  });
-  this.history = new CircularBuffer(200);
-  var controller = this;
-  this.lastFrame = Frame.Invalid;
-  this.lastValidFrame = Frame.Invalid;
-  this.lastConnectionFrame = Frame.Invalid;
-  var connectionType = this.opts.connectionType || this.connectionType();
-  this.connection = new connectionType(this.opts);
-  this.accumulatedGestures = [];
-  this.connection.on('frame', function(frame) {
-    if (frame.gestures) {
-      controller.accumulatedGestures = controller.accumulatedGestures.concat(frame.gestures);
-    }
-    controller.processFrame(frame);
-  });
-  this.on(this.opts.frameEventName, function(frame) {
-    controller.processFinishedFrame(frame);
-  });
-
-  // Delegate connection events
-  this.connection.on('ready', function() { controller.emit('ready') });
-  this.connection.on('connect', function() { controller.emit('connect') });
-  this.connection.on('disconnect', function() { controller.emit('disconnect') });
-  this.connection.on('focus', function() { controller.emit('focus') });
-  this.connection.on('blur', function() { controller.emit('blur') });
-}
-
-Controller.prototype.inBrowser = function() {
-  return !inNode;
-}
-
-Controller.prototype.useAnimationLoop = function() {
-  return this.inBrowser() && typeof(chrome) === "undefined";
-}
-
-Controller.prototype.connectionType = function() {
-  return (this.inBrowser() ? require('./connection') : require('./node_connection')).Connection;
-}
-
-Controller.prototype.connect = function() {
-  var controller = this;
-  if (this.connection.connect() && this.inBrowser()) {
-    var callback = function() {
-      controller.emit('animationFrame', controller.lastConnectionFrame);
-      if (controller.opts.supressAnimationLoop !== true) window.requestAnimFrame(callback);
-    }
-    if (controller.opts.supressAnimationLoop !== true) {
-      window.requestAnimFrame(callback);
-    };
-  }
-}
-
-Controller.prototype.disconnect = function() {
-  this.connection.disconnect();
-}
-
-/**
- * Returns a frame of tracking data from the Leap.
- *
- * Use the optional history parameter to specify which frame to retrieve.
- * Call frame() or frame(0) to access the most recent frame; call frame(1) to
- * access the previous frame, and so on. If you use a history value greater
- * than the number of stored frames, then the controller returns an invalid frame.
- *
- * @method frame
- * @memberof Leap.Controller.prototype
- * @param {Number} history The age of the frame to return, counting backwards from
- * the most recent frame (0) into the past and up to the maximum age (59).
- * @returns {Leap.Frame} The specified frame; or, if no history
- * parameter is specified, the newest frame. If a frame is not available at
- * the specified history position, an invalid Frame is returned.
- */
-Controller.prototype.frame = function(num) {
-  return this.history.get(num) || Frame.Invalid;
-}
-
-Controller.prototype.loop = function(callback) {
-  switch (callback.length) {
-    case 1:
-      this.on(this.opts.frameEventName, callback);
-      break;
-    case 2:
-      var controller = this;
-      var scheduler = null;
-      var immediateRunnerCallback = function(frame) {
-        callback(frame, function() {
-          if (controller.lastFrame != frame) {
-            immediateRunnerCallback(controller.lastFrame);
-          } else {
-            controller.once(controller.opts.frameEventName, immediateRunnerCallback);
-          }
-        });
-      }
-      this.once(this.opts.frameEventName, immediateRunnerCallback);
-      break;
-  }
-  this.connect();
-}
-
-Controller.prototype.addStep = function(step) {
-  if (!this.pipeline) this.pipeline = new Pipeline(this);
-  this.pipeline.addStep(step);
-}
-
-Controller.prototype.processFrame = function(frame) {
-  if (this.pipeline) {
-    frame = this.pipeline.run(frame);
-    if (!frame) frame = Frame.Invalid;
-  }
-  this.lastConnectionFrame = frame;
-  this.emit('connectionFrame', frame);
-}
-
-Controller.prototype.processFinishedFrame = function(frame) {
-  this.lastFrame = frame;
-  if (frame.valid) {
-    this.lastValidFrame = frame;
-  }
-  if (frame.gestures) {
-    frame.gestures = this.accumulatedGestures;
-    this.accumulatedGestures = [];
-  }
-  frame.controller = this;
-  frame.historyIdx = this.history.push(frame);
-  this.emit('frame', frame);
-}
-
-_.extend(Controller.prototype, EventEmitter.prototype);
-
-},{"./circular_buffer":5,"./connection":6,"./frame":8,"./node_connection":15,"./pipeline":21,"events":17,"underscore":22}],8:[function(require,module,exports){
+},{}],8:[function(require,module,exports){
 var Hand = require("./hand").Hand
   , Pointable = require("./pointable").Pointable
   , Gesture = require("./gesture").Gesture
@@ -2024,7 +1992,177 @@ Frame.Invalid = {
   dump: function() { return this.toString() }
 }
 
-},{"./gesture":9,"./hand":10,"./interaction_box":23,"./matrix":11,"./pointable":12,"./vector":14,"underscore":22}],10:[function(require,module,exports){
+},{"./gesture":9,"./hand":10,"./interaction_box":11,"./matrix":12,"./pointable":13,"./vector":15,"underscore":23}],7:[function(require,module,exports){
+var inNode = typeof(window) === 'undefined';
+
+var Frame = require('./frame').Frame
+  , CircularBuffer = require("./circular_buffer").CircularBuffer
+  , Pipeline = require("./pipeline").Pipeline
+  , EventEmitter = require('events').EventEmitter
+  , _ = require('underscore');
+
+/**
+ * Constructs a Controller object.
+ *
+ * When creating a Controller object, you may optionally pass in options
+ * to set the host , set the port, enable gestures, or select the frame event type.
+ *
+ * ```javascript
+ * var controller = new Leap.Controller({
+ *   host: '127.0.0.1',
+ *   port: 6437,
+ *   enableGestures: true,
+ *   frameEventName: 'animationFrame'
+ * });
+ * ```
+ *
+ * @class Controller
+ * @memberof Leap
+ * @classdesc
+ * The Controller class is your main interface to the Leap Motion Controller.
+ *
+ * Create an instance of this Controller class to access frames of tracking data
+ * and configuration information. Frame data can be polled at any time using the
+ * [Controller.frame]{@link Leap.Controller#frame}() function. Call frame() or frame(0) to get the most recent
+ * frame. Set the history parameter to a positive integer to access previous frames.
+ * A controller stores up to 60 frames in its frame history.
+ *
+ * Polling is an appropriate strategy for applications which already have an
+ * intrinsic update loop, such as a game.
+ */
+var Controller = exports.Controller = function(opts) {
+  this.opts = _.defaults(opts || {}, {
+    frameEventName: this.useAnimationLoop() ? 'animationFrame' : 'connectionFrame'
+  });
+  this.history = new CircularBuffer(200);
+  var controller = this;
+  this.lastFrame = Frame.Invalid;
+  this.lastValidFrame = Frame.Invalid;
+  this.lastConnectionFrame = Frame.Invalid;
+  var connectionType = this.opts.connectionType || this.connectionType();
+  this.connection = new connectionType(this.opts);
+  this.accumulatedGestures = [];
+  this.connection.on('frame', function(frame) {
+    if (frame.gestures) {
+      controller.accumulatedGestures = controller.accumulatedGestures.concat(frame.gestures);
+    }
+    controller.processFrame(frame);
+  });
+  this.on(this.opts.frameEventName, function(frame) {
+    controller.processFinishedFrame(frame);
+  });
+
+  // Delegate connection events
+  this.connection.on('ready', function() { controller.emit('ready') });
+  this.connection.on('connect', function() { controller.emit('connect') });
+  this.connection.on('disconnect', function() { controller.emit('disconnect') });
+  this.connection.on('focus', function() { controller.emit('focus') });
+  this.connection.on('blur', function() { controller.emit('blur') });
+}
+
+Controller.prototype.inBrowser = function() {
+  return !inNode;
+}
+
+Controller.prototype.useAnimationLoop = function() {
+  return this.inBrowser() && typeof(chrome) === "undefined";
+}
+
+Controller.prototype.connectionType = function() {
+  return (this.inBrowser() ? require('./connection') : require('./node_connection')).Connection;
+}
+
+Controller.prototype.connect = function() {
+  var controller = this;
+  if (this.connection.connect() && this.inBrowser()) {
+    var callback = function() {
+      controller.emit('animationFrame', controller.lastConnectionFrame);
+      if (controller.opts.supressAnimationLoop !== true) window.requestAnimFrame(callback);
+    }
+    if (controller.opts.supressAnimationLoop !== true) {
+      window.requestAnimFrame(callback);
+    };
+  }
+}
+
+Controller.prototype.disconnect = function() {
+  this.connection.disconnect();
+}
+
+/**
+ * Returns a frame of tracking data from the Leap.
+ *
+ * Use the optional history parameter to specify which frame to retrieve.
+ * Call frame() or frame(0) to access the most recent frame; call frame(1) to
+ * access the previous frame, and so on. If you use a history value greater
+ * than the number of stored frames, then the controller returns an invalid frame.
+ *
+ * @method frame
+ * @memberof Leap.Controller.prototype
+ * @param {Number} history The age of the frame to return, counting backwards from
+ * the most recent frame (0) into the past and up to the maximum age (59).
+ * @returns {Leap.Frame} The specified frame; or, if no history
+ * parameter is specified, the newest frame. If a frame is not available at
+ * the specified history position, an invalid Frame is returned.
+ */
+Controller.prototype.frame = function(num) {
+  return this.history.get(num) || Frame.Invalid;
+}
+
+Controller.prototype.loop = function(callback) {
+  switch (callback.length) {
+    case 1:
+      this.on(this.opts.frameEventName, callback);
+      break;
+    case 2:
+      var controller = this;
+      var scheduler = null;
+      var immediateRunnerCallback = function(frame) {
+        callback(frame, function() {
+          if (controller.lastFrame != frame) {
+            immediateRunnerCallback(controller.lastFrame);
+          } else {
+            controller.once(controller.opts.frameEventName, immediateRunnerCallback);
+          }
+        });
+      }
+      this.once(this.opts.frameEventName, immediateRunnerCallback);
+      break;
+  }
+  this.connect();
+}
+
+Controller.prototype.addStep = function(step) {
+  if (!this.pipeline) this.pipeline = new Pipeline(this);
+  this.pipeline.addStep(step);
+}
+
+Controller.prototype.processFrame = function(frame) {
+  if (this.pipeline) {
+    frame = this.pipeline.run(frame);
+    if (!frame) frame = Frame.Invalid;
+  }
+  this.lastConnectionFrame = frame;
+  this.emit('connectionFrame', frame);
+}
+
+Controller.prototype.processFinishedFrame = function(frame) {
+  this.lastFrame = frame;
+  if (frame.valid) {
+    this.lastValidFrame = frame;
+  }
+  if (frame.gestures) {
+    frame.gestures = this.accumulatedGestures;
+    this.accumulatedGestures = [];
+  }
+  frame.controller = this;
+  frame.historyIdx = this.history.push(frame);
+  this.emit('frame', frame);
+}
+
+_.extend(Controller.prototype, EventEmitter.prototype);
+
+},{"./circular_buffer":5,"./connection":6,"./frame":8,"./node_connection":16,"./pipeline":22,"events":18,"underscore":23}],10:[function(require,module,exports){
 var Pointable = require("./pointable").Pointable
   , Vector = require("./vector").Vector
   , Matrix = require("./matrix").Matrix
@@ -2372,7 +2510,7 @@ Hand.prototype.toString = function() {
  */
 Hand.Invalid = { valid: false };
 
-},{"./matrix":11,"./pointable":12,"./vector":14,"underscore":22}],14:[function(require,module,exports){
+},{"./matrix":12,"./pointable":13,"./vector":15,"underscore":23}],15:[function(require,module,exports){
 var _ = require('underscore');
 
 /**
@@ -2839,7 +2977,7 @@ Vector.zAxis = function(){ return new Vector([0,0,1]); };
  */
 Vector.zero = function(){ return new Vector([0,0,0]); };
 
-},{"underscore":22}],11:[function(require,module,exports){
+},{"underscore":23}],12:[function(require,module,exports){
 var Vector = require("./vector").Vector,
     _ = require('underscore');
 
@@ -3142,143 +3280,7 @@ _.extend(Matrix.prototype, MatrixPrototype);
  */
 Matrix.identity = function(){ return new Matrix(); };
 
-},{"./vector":14,"underscore":22}],23:[function(require,module,exports){
-var Vector = require("./vector").Vector;
-
-/**
- * The InteractionBox class represents a box-shaped region completely within
- * the field of view of the Leap Motion controller.
- *
- * <p>The interaction box is an axis-aligned rectangular prism and provides
- * normalized coordinates for hands, fingers, and tools within this box.
- * The InteractionBox class can make it easier to map positions in the
- * Leap Motion coordinate system to 2D or 3D coordinate systems used
- * for application drawing.</p>
- *
- * <p>The InteractionBox region is defined by a center and dimensions along the x, y, and z axes.</p>
- */
-var InteractionBox = exports.InteractionBox = function(data) {
-    /**
-     * Indicates whether this is a valid InteractionBox object.
-     *
-     * @member valid
-     * @type {Boolean}
-     * @memberof Leap.InteractionBox.prototype
-     */
-    this.valid = true;
-    /**
-     * The center of the InteractionBox in device coordinates (millimeters).
-     * <p>This point is equidistant from all sides of the box.</p>
-     *
-     * @member center
-     * @type {Leap.Vector}
-     * @memberof Leap.InteractionBox.prototype
-     */
-    this.center = new Vector(data.center);
-    /**
-     * The width of the InteractionBox in millimeters, measured along the x-axis.
-     *
-     * @member width
-     * @type {Number}
-     * @memberof Leap.InteractionBox.prototype
-     */
-    this.width = data.size[0];
-    /**
-     * The height of the InteractionBox in millimeters, measured along the y-axis.
-     *
-     * @member height
-     * @type {Number}
-     * @memberof Leap.InteractionBox.prototype
-     */
-    this.height = data.size[1];
-    /**
-     * The depth of the InteractionBox in millimeters, measured along the z-axis.
-     *
-     * @member depth
-     * @type {Number}
-     * @memberof Leap.InteractionBox.prototype
-     */
-    this.depth = data.size[2];
-}
-
-/**
- * Converts a position defined by normalized InteractionBox coordinates
- * into device coordinates in millimeters.
- *
- * <p>This function performs the inverse of normalizePoint().</p>
- *
- * @method denormalizePoint
- * @memberof Leap.InteractionBox.prototype
- * @param {Leap.Vector} normalizedPosition The input position in InteractionBox coordinates.
- * @returns {Leap.Vector} The corresponding denormalized position in device coordinates.
- */
-InteractionBox.prototype.denormalizePoint = function(normalizedPosition) {
-    var vec = new Vector(0,0,0);
-
-    vec.x = ( ( ( normalizedPosition.x + this.center.x ) - 0.5 ) * this.width );
-    vec.y = ( ( ( normalizedPosition.y + this.center.y ) - 0.5 ) * this.height );
-    vec.z = ( ( ( normalizedPosition.z + this.center.z ) - 0.5 ) * this.depth );
-
-    return vec;
-}
-
-/**
- * Normalizes the coordinates of a point using the interaction box.
- *
- * <p>Coordinates from the Leap Motion frame of reference (millimeters) are
- * converted to a range of [0..1] such that the minimum value of the
- * InteractionBox maps to 0 and the maximum value of the InteractionBox maps to 1.</p>
- *
- * @method normalizePoint
- * @memberof Leap.InteractionBox.prototype
- * @param {Leap.Vector} position The input position in device coordinates.
- * @param {Boolean} clamp Whether or not to limit the output value to the range [0,1]
- * when the input position is outside the InteractionBox. Defaults to true.
- * @returns {Leap.Vector} The normalized position.
- */
-InteractionBox.prototype.normalizePoint = function(position, clamp) {
-    var vec = new Vector(0,0,0);
-
-    vec.x = ( ( position.x - this.center.x ) / this.width ) + 0.5;
-    vec.y = ( ( position.y - this.center.y ) / this.height ) + 0.5;
-    vec.z = ( ( position.z - this.center.z ) / this.depth ) + 0.5;
-
-    if( clamp )
-    {
-        vec.x = Math.min( Math.max( vec.x, 0 ), 1 );
-        vec.y = Math.min( Math.max( vec.y, 0 ), 1 );
-        vec.z = Math.min( Math.max( vec.z, 0 ), 1 );
-    }
-
-    return vec;
-}
-
-/**
- * Writes a brief, human readable description of the InteractionBox object.
- *
- * @method toString
- * @memberof Leap.InteractionBox.prototype
- * @returns {String} A description of the InteractionBox object as a string.
- */
-InteractionBox.prototype.toString = function() {
-    return "InteractionBox [ width:" + this.width + " height:" + this.height + " depth:" + this.depth + " ]";
-}
-
-/**
- * An invalid InteractionBox object.
- *
- * You can use this InteractionBox instance in comparisons testing
- * whether a given InteractionBox instance is valid or invalid. (You can also use the
- * InteractionBox.valid property.)
-
- * @static
- * @type {Leap.InteractionBox}
- * @name Invalid
- * @memberof Leap.InteractionBox
- */
-InteractionBox.Invalid = { valid: false };
-
-},{"./vector":14}],22:[function(require,module,exports){
+},{"./vector":15,"underscore":23}],23:[function(require,module,exports){
 (function(){//     Underscore.js 1.4.4
 //     http://underscorejs.org
 //     (c) 2009-2013 Jeremy Ashkenas, DocumentCloud Inc.
@@ -4860,7 +4862,7 @@ exports.format = function(f) {
   return str;
 };
 
-},{"events":17}],18:[function(require,module,exports){
+},{"events":18}],19:[function(require,module,exports){
 var chooseProtocol = require('./protocol').chooseProtocol
   , EventEmitter = require('events').EventEmitter
   , _ = require('underscore');
@@ -4954,7 +4956,7 @@ Connection.prototype.setHeartbeatState = function(state) {
 
 _.extend(Connection.prototype, EventEmitter.prototype);
 
-},{"./protocol":25,"events":17,"underscore":22}],25:[function(require,module,exports){
+},{"./protocol":25,"events":18,"underscore":23}],25:[function(require,module,exports){
 var Frame = require('./frame').Frame
   , util = require('util');
 
@@ -4989,7 +4991,7 @@ var chooseProtocol = exports.chooseProtocol = function(header) {
   return protocol;
 }
 
-},{"./frame":8,"util":24}],20:[function(require,module,exports){
+},{"./frame":8,"util":24}],21:[function(require,module,exports){
 var EventEmitter = require('events').EventEmitter
   , Vector = require('../vector').Vector
   , _ = require('underscore')
@@ -5078,5 +5080,5 @@ Region.prototype.mapToXY = function(position, width, height) {
 }
 
 _.extend(Region.prototype, EventEmitter.prototype)
-},{"../vector":14,"events":17,"underscore":22}]},{},[1,2,3])
+},{"../vector":15,"events":18,"underscore":23}]},{},[1,2,3])
 ;
