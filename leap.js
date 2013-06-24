@@ -1277,10 +1277,10 @@ var Pointable = exports.Pointable = function(data) {
   this.touchZone = data.touchZone;
   /**
    * Distance from 'Touch Plane'
-   * 
-   * @member Pointable.prototype.touchDist {Number}
+   *
+   * @member Pointable.prototype.touchDistance {Number}
    */
-  this.touchDist = data.touchDist;
+  this.touchDistance = data.touchDistance;
 }
 
 /**
@@ -1575,6 +1575,7 @@ var Hand = require("./hand").Hand
   , Gesture = require("./gesture").Gesture
   , Vector = require("./vector").Vector
   , Matrix = require("./matrix").Matrix
+  , InteractionBox = require("./interaction_box").InteractionBox
   , _ = require("underscore");
 
 /**
@@ -1671,11 +1672,7 @@ var Frame = exports.Frame = function(data) {
    * @type {Leap.Pointable}
    */
 
-  this.interactionBox = {
-    center: new Vector(data.center),
-    size: new Vector(data.size)
-  }
-
+  this.interactionBox = new InteractionBox(data.interactionBox);
   this.fingers = [];
   this.gestures = [];
   this.pointablesMap = {};
@@ -1820,24 +1817,24 @@ Frame.prototype.hand = function(id) {
 }
 
 /**
- * The angle of rotation around the rotation axis derived from the overall 
+ * The angle of rotation around the rotation axis derived from the overall
  * rotational motion between the current frame and the specified frame.
- * 
- * The returned angle is expressed in radians measured clockwise around 
- * the rotation axis (using the right-hand rule) between the start and end frames. 
+ *
+ * The returned angle is expressed in radians measured clockwise around
+ * the rotation axis (using the right-hand rule) between the start and end frames.
  * The value is always between 0 and pi radians (0 and 180 degrees).
- * 
- * The Leap derives frame rotation from the relative change in position and 
+ *
+ * The Leap derives frame rotation from the relative change in position and
  * orientation of all objects detected in the field of view.
- * 
- * If either this frame or sinceFrame is an invalid Frame object, then the 
+ *
+ * If either this frame or sinceFrame is an invalid Frame object, then the
  * angle of rotation is zero.
- * 
+ *
  * @method rotationAngle
  * @memberof Leap.Frame.prototype
  * @param {Leap.Frame} sinceFrame The starting frame for computing the relative rotation.
  * @param {Leap.Vector} [axis] The axis to measure rotation around.
- * @returns {Number} A positive value containing the heuristically determined 
+ * @returns {Number} A positive value containing the heuristically determined
  * rotational change between the current frame and that specified in the sinceFrame parameter.
  */
 Frame.prototype.rotationAngle = function(sinceFrame, axis){
@@ -1856,21 +1853,21 @@ Frame.prototype.rotationAngle = function(sinceFrame, axis){
 }
 
 /**
- * The axis of rotation derived from the overall rotational motion between 
+ * The axis of rotation derived from the overall rotational motion between
  * the current frame and the specified frame.
- * 
+ *
  * The returned direction vector is normalized.
- * 
- * The Leap derives frame rotation from the relative change in position and 
+ *
+ * The Leap derives frame rotation from the relative change in position and
  * orientation of all objects detected in the field of view.
- * 
- * If either this frame or sinceFrame is an invalid Frame object, or if no 
+ *
+ * If either this frame or sinceFrame is an invalid Frame object, or if no
  * rotation is detected between the two frames, a zero vector is returned.
- * 
+ *
  * @method rotationAxis
  * @memberof Leap.Frame.prototype
  * @param {Leap.Frame} sinceFrame The starting frame for computing the relative rotation.
- * @returns {Leap.Vector} A normalized direction Vector representing the axis of the heuristically determined 
+ * @returns {Leap.Vector} A normalized direction Vector representing the axis of the heuristically determined
  * rotational change between the current frame and that specified in the sinceFrame parameter.
  */
 Frame.prototype.rotationAxis = function(sinceFrame){
@@ -1883,19 +1880,19 @@ Frame.prototype.rotationAxis = function(sinceFrame){
 }
 
 /**
- * The transform matrix expressing the rotation derived from the overall 
+ * The transform matrix expressing the rotation derived from the overall
  * rotational motion between the current frame and the specified frame.
- * 
- * The Leap derives frame rotation from the relative change in position and 
+ *
+ * The Leap derives frame rotation from the relative change in position and
  * orientation of all objects detected in the field of view.
- * 
- * If either this frame or sinceFrame is an invalid Frame object, then 
+ *
+ * If either this frame or sinceFrame is an invalid Frame object, then
  * this method returns an identity matrix.
- * 
+ *
  * @method rotationMatrix
  * @memberof Leap.Frame.prototype
  * @param {Leap.Frame} sinceFrame The starting frame for computing the relative rotation.
- * @returns {Leap.Matrix} A transformation Matrix containing the heuristically determined 
+ * @returns {Leap.Matrix} A transformation Matrix containing the heuristically determined
  * rotational change between the current frame and that specified in the sinceFrame parameter.
  */
 Frame.prototype.rotationMatrix = function(sinceFrame){
@@ -1909,19 +1906,19 @@ Frame.prototype.rotationMatrix = function(sinceFrame){
 
 /**
  * The scale factor derived from the overall motion between the current frame and the specified frame.
- * 
- * The scale factor is always positive. A value of 1.0 indicates no scaling took place. 
+ *
+ * The scale factor is always positive. A value of 1.0 indicates no scaling took place.
  * Values between 0.0 and 1.0 indicate contraction and values greater than 1.0 indicate expansion.
- * 
- * The Leap derives scaling from the relative inward or outward motion of all 
+ *
+ * The Leap derives scaling from the relative inward or outward motion of all
  * objects detected in the field of view (independent of translation and rotation).
- * 
+ *
  * If either this frame or sinceFrame is an invalid Frame object, then this method returns 1.0.
- * 
+ *
  * @method scaleFactor
  * @memberof Leap.Frame.prototype
  * @param {Leap.Frame} sinceFrame The starting frame for computing the relative scaling.
- * @returns {Number} A positive value representing the heuristically determined 
+ * @returns {Number} A positive value representing the heuristically determined
  * scaling change ratio between the current frame and that specified in the sinceFrame parameter.
  */
 Frame.prototype.scaleFactor = function(sinceFrame){
@@ -1930,22 +1927,22 @@ Frame.prototype.scaleFactor = function(sinceFrame){
 }
 
 /**
- * The change of position derived from the overall linear motion between the 
+ * The change of position derived from the overall linear motion between the
  * current frame and the specified frame.
- * 
- * The returned translation vector provides the magnitude and direction of the 
+ *
+ * The returned translation vector provides the magnitude and direction of the
  * movement in millimeters.
- * 
- * The Leap derives frame translation from the linear motion of all objects 
+ *
+ * The Leap derives frame translation from the linear motion of all objects
  * detected in the field of view.
- * 
- * If either this frame or sinceFrame is an invalid Frame object, then this 
+ *
+ * If either this frame or sinceFrame is an invalid Frame object, then this
  * method returns a zero vector.
- * 
+ *
  * @method translation
  * @memberof Leap.Frame.prototype
  * @param {Leap.Frame} sinceFrame The starting frame for computing the relative translation.
- * @returns {Leap.Vector} A Vector representing the heuristically determined change in 
+ * @returns {Leap.Vector} A Vector representing the heuristically determined change in
  * position of all objects between the current frame and that specified in the sinceFrame parameter.
  */
 Frame.prototype.translation = function(sinceFrame){
@@ -2027,7 +2024,7 @@ Frame.Invalid = {
   dump: function() { return this.toString() }
 }
 
-},{"./gesture":9,"./hand":10,"./matrix":11,"./pointable":12,"./vector":14,"underscore":22}],10:[function(require,module,exports){
+},{"./gesture":9,"./hand":10,"./interaction_box":23,"./matrix":11,"./pointable":12,"./vector":14,"underscore":22}],10:[function(require,module,exports){
 var Pointable = require("./pointable").Pointable
   , Vector = require("./vector").Vector
   , Matrix = require("./matrix").Matrix
@@ -3145,7 +3142,143 @@ _.extend(Matrix.prototype, MatrixPrototype);
  */
 Matrix.identity = function(){ return new Matrix(); };
 
-},{"./vector":14,"underscore":22}],22:[function(require,module,exports){
+},{"./vector":14,"underscore":22}],23:[function(require,module,exports){
+var Vector = require("./vector").Vector;
+
+/**
+ * The InteractionBox class represents a box-shaped region completely within
+ * the field of view of the Leap Motion controller.
+ *
+ * <p>The interaction box is an axis-aligned rectangular prism and provides
+ * normalized coordinates for hands, fingers, and tools within this box.
+ * The InteractionBox class can make it easier to map positions in the
+ * Leap Motion coordinate system to 2D or 3D coordinate systems used
+ * for application drawing.</p>
+ *
+ * <p>The InteractionBox region is defined by a center and dimensions along the x, y, and z axes.</p>
+ */
+var InteractionBox = exports.InteractionBox = function(data) {
+    /**
+     * Indicates whether this is a valid InteractionBox object.
+     *
+     * @member valid
+     * @type {Boolean}
+     * @memberof Leap.InteractionBox.prototype
+     */
+    this.valid = true;
+    /**
+     * The center of the InteractionBox in device coordinates (millimeters).
+     * <p>This point is equidistant from all sides of the box.</p>
+     *
+     * @member center
+     * @type {Leap.Vector}
+     * @memberof Leap.InteractionBox.prototype
+     */
+    this.center = new Vector(data.center);
+    /**
+     * The width of the InteractionBox in millimeters, measured along the x-axis.
+     *
+     * @member width
+     * @type {Number}
+     * @memberof Leap.InteractionBox.prototype
+     */
+    this.width = data.size[0];
+    /**
+     * The height of the InteractionBox in millimeters, measured along the y-axis.
+     *
+     * @member height
+     * @type {Number}
+     * @memberof Leap.InteractionBox.prototype
+     */
+    this.height = data.size[1];
+    /**
+     * The depth of the InteractionBox in millimeters, measured along the z-axis.
+     *
+     * @member depth
+     * @type {Number}
+     * @memberof Leap.InteractionBox.prototype
+     */
+    this.depth = data.size[2];
+}
+
+/**
+ * Converts a position defined by normalized InteractionBox coordinates
+ * into device coordinates in millimeters.
+ *
+ * <p>This function performs the inverse of normalizePoint().</p>
+ *
+ * @method denormalizePoint
+ * @memberof Leap.InteractionBox.prototype
+ * @param {Leap.Vector} normalizedPosition The input position in InteractionBox coordinates.
+ * @returns {Leap.Vector} The corresponding denormalized position in device coordinates.
+ */
+InteractionBox.prototype.denormalizePoint = function(normalizedPosition) {
+    var vec = new Vector(0,0,0);
+
+    vec.x = ( ( ( normalizedPosition.x + this.center.x ) - 0.5 ) * this.width );
+    vec.y = ( ( ( normalizedPosition.y + this.center.y ) - 0.5 ) * this.height );
+    vec.z = ( ( ( normalizedPosition.z + this.center.z ) - 0.5 ) * this.depth );
+
+    return vec;
+}
+
+/**
+ * Normalizes the coordinates of a point using the interaction box.
+ *
+ * <p>Coordinates from the Leap Motion frame of reference (millimeters) are
+ * converted to a range of [0..1] such that the minimum value of the
+ * InteractionBox maps to 0 and the maximum value of the InteractionBox maps to 1.</p>
+ *
+ * @method normalizePoint
+ * @memberof Leap.InteractionBox.prototype
+ * @param {Leap.Vector} position The input position in device coordinates.
+ * @param {Boolean} clamp Whether or not to limit the output value to the range [0,1]
+ * when the input position is outside the InteractionBox. Defaults to true.
+ * @returns {Leap.Vector} The normalized position.
+ */
+InteractionBox.prototype.normalizePoint = function(position, clamp) {
+    var vec = new Vector(0,0,0);
+
+    vec.x = ( ( position.x - this.center.x ) / this.width ) + 0.5;
+    vec.y = ( ( position.y - this.center.y ) / this.height ) + 0.5;
+    vec.z = ( ( position.z - this.center.z ) / this.depth ) + 0.5;
+
+    if( clamp )
+    {
+        vec.x = Math.min( Math.max( vec.x, 0 ), 1 );
+        vec.y = Math.min( Math.max( vec.y, 0 ), 1 );
+        vec.z = Math.min( Math.max( vec.z, 0 ), 1 );
+    }
+
+    return vec;
+}
+
+/**
+ * Writes a brief, human readable description of the InteractionBox object.
+ *
+ * @method toString
+ * @memberof Leap.InteractionBox.prototype
+ * @returns {String} A description of the InteractionBox object as a string.
+ */
+InteractionBox.prototype.toString = function() {
+    return "InteractionBox [ width:" + this.width + " height:" + this.height + " depth:" + this.depth + " ]";
+}
+
+/**
+ * An invalid InteractionBox object.
+ *
+ * You can use this InteractionBox instance in comparisons testing
+ * whether a given InteractionBox instance is valid or invalid. (You can also use the
+ * InteractionBox.valid property.)
+
+ * @static
+ * @type {Leap.InteractionBox}
+ * @name Invalid
+ * @memberof Leap.InteractionBox
+ */
+InteractionBox.Invalid = { valid: false };
+
+},{"./vector":14}],22:[function(require,module,exports){
 (function(){//     Underscore.js 1.4.4
 //     http://underscorejs.org
 //     (c) 2009-2013 Jeremy Ashkenas, DocumentCloud Inc.
@@ -4374,7 +4507,7 @@ Matrix.identity = function(){ return new Matrix(); };
 }).call(this);
 
 })()
-},{}],23:[function(require,module,exports){
+},{}],24:[function(require,module,exports){
 var events = require('events');
 
 exports.isArray = isArray;
@@ -4821,7 +4954,7 @@ Connection.prototype.setHeartbeatState = function(state) {
 
 _.extend(Connection.prototype, EventEmitter.prototype);
 
-},{"./protocol":24,"events":17,"underscore":22}],24:[function(require,module,exports){
+},{"./protocol":25,"events":17,"underscore":22}],25:[function(require,module,exports){
 var Frame = require('./frame').Frame
   , util = require('util');
 
@@ -4856,7 +4989,7 @@ var chooseProtocol = exports.chooseProtocol = function(header) {
   return protocol;
 }
 
-},{"./frame":8,"util":23}],20:[function(require,module,exports){
+},{"./frame":8,"util":24}],20:[function(require,module,exports){
 var EventEmitter = require('events').EventEmitter
   , Vector = require('../vector').Vector
   , _ = require('underscore')
