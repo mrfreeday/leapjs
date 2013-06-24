@@ -1537,7 +1537,177 @@ var Cursor = exports.Cursor = function() {
   }
 }
 
-},{}],8:[function(require,module,exports){
+},{}],7:[function(require,module,exports){
+var inNode = typeof(window) === 'undefined';
+
+var Frame = require('./frame').Frame
+  , CircularBuffer = require("./circular_buffer").CircularBuffer
+  , Pipeline = require("./pipeline").Pipeline
+  , EventEmitter = require('events').EventEmitter
+  , _ = require('underscore');
+
+/**
+ * Constructs a Controller object.
+ *
+ * When creating a Controller object, you may optionally pass in options
+ * to set the host , set the port, enable gestures, or select the frame event type.
+ *
+ * ```javascript
+ * var controller = new Leap.Controller({
+ *   host: '127.0.0.1',
+ *   port: 6437,
+ *   enableGestures: true,
+ *   frameEventName: 'animationFrame'
+ * });
+ * ```
+ *
+ * @class Controller
+ * @memberof Leap
+ * @classdesc
+ * The Controller class is your main interface to the Leap Motion Controller.
+ *
+ * Create an instance of this Controller class to access frames of tracking data
+ * and configuration information. Frame data can be polled at any time using the
+ * [Controller.frame]{@link Leap.Controller#frame}() function. Call frame() or frame(0) to get the most recent
+ * frame. Set the history parameter to a positive integer to access previous frames.
+ * A controller stores up to 60 frames in its frame history.
+ *
+ * Polling is an appropriate strategy for applications which already have an
+ * intrinsic update loop, such as a game.
+ */
+var Controller = exports.Controller = function(opts) {
+  this.opts = _.defaults(opts || {}, {
+    frameEventName: this.useAnimationLoop() ? 'animationFrame' : 'connectionFrame'
+  });
+  this.history = new CircularBuffer(200);
+  var controller = this;
+  this.lastFrame = Frame.Invalid;
+  this.lastValidFrame = Frame.Invalid;
+  this.lastConnectionFrame = Frame.Invalid;
+  var connectionType = this.opts.connectionType || this.connectionType();
+  this.connection = new connectionType(this.opts);
+  this.accumulatedGestures = [];
+  this.connection.on('frame', function(frame) {
+    if (frame.gestures) {
+      controller.accumulatedGestures = controller.accumulatedGestures.concat(frame.gestures);
+    }
+    controller.processFrame(frame);
+  });
+  this.on(this.opts.frameEventName, function(frame) {
+    controller.processFinishedFrame(frame);
+  });
+
+  // Delegate connection events
+  this.connection.on('ready', function() { controller.emit('ready') });
+  this.connection.on('connect', function() { controller.emit('connect') });
+  this.connection.on('disconnect', function() { controller.emit('disconnect') });
+  this.connection.on('focus', function() { controller.emit('focus') });
+  this.connection.on('blur', function() { controller.emit('blur') });
+}
+
+Controller.prototype.inBrowser = function() {
+  return !inNode;
+}
+
+Controller.prototype.useAnimationLoop = function() {
+  return this.inBrowser() && typeof(chrome) === "undefined";
+}
+
+Controller.prototype.connectionType = function() {
+  return (this.inBrowser() ? require('./connection') : require('./node_connection')).Connection;
+}
+
+Controller.prototype.connect = function() {
+  var controller = this;
+  if (this.connection.connect() && this.inBrowser()) {
+    var callback = function() {
+      controller.emit('animationFrame', controller.lastConnectionFrame);
+      if (controller.opts.supressAnimationLoop !== true) window.requestAnimFrame(callback);
+    }
+    if (controller.opts.supressAnimationLoop !== true) {
+      window.requestAnimFrame(callback);
+    };
+  }
+}
+
+Controller.prototype.disconnect = function() {
+  this.connection.disconnect();
+}
+
+/**
+ * Returns a frame of tracking data from the Leap.
+ *
+ * Use the optional history parameter to specify which frame to retrieve.
+ * Call frame() or frame(0) to access the most recent frame; call frame(1) to
+ * access the previous frame, and so on. If you use a history value greater
+ * than the number of stored frames, then the controller returns an invalid frame.
+ *
+ * @method frame
+ * @memberof Leap.Controller.prototype
+ * @param {Number} history The age of the frame to return, counting backwards from
+ * the most recent frame (0) into the past and up to the maximum age (59).
+ * @returns {Leap.Frame} The specified frame; or, if no history
+ * parameter is specified, the newest frame. If a frame is not available at
+ * the specified history position, an invalid Frame is returned.
+ */
+Controller.prototype.frame = function(num) {
+  return this.history.get(num) || Frame.Invalid;
+}
+
+Controller.prototype.loop = function(callback) {
+  switch (callback.length) {
+    case 1:
+      this.on(this.opts.frameEventName, callback);
+      break;
+    case 2:
+      var controller = this;
+      var scheduler = null;
+      var immediateRunnerCallback = function(frame) {
+        callback(frame, function() {
+          if (controller.lastFrame != frame) {
+            immediateRunnerCallback(controller.lastFrame);
+          } else {
+            controller.once(controller.opts.frameEventName, immediateRunnerCallback);
+          }
+        });
+      }
+      this.once(this.opts.frameEventName, immediateRunnerCallback);
+      break;
+  }
+  this.connect();
+}
+
+Controller.prototype.addStep = function(step) {
+  if (!this.pipeline) this.pipeline = new Pipeline(this);
+  this.pipeline.addStep(step);
+}
+
+Controller.prototype.processFrame = function(frame) {
+  if (this.pipeline) {
+    frame = this.pipeline.run(frame);
+    if (!frame) frame = Frame.Invalid;
+  }
+  this.lastConnectionFrame = frame;
+  this.emit('connectionFrame', frame);
+}
+
+Controller.prototype.processFinishedFrame = function(frame) {
+  this.lastFrame = frame;
+  if (frame.valid) {
+    this.lastValidFrame = frame;
+  }
+  if (frame.gestures) {
+    frame.gestures = this.accumulatedGestures;
+    this.accumulatedGestures = [];
+  }
+  frame.controller = this;
+  frame.historyIdx = this.history.push(frame);
+  this.emit('frame', frame);
+}
+
+_.extend(Controller.prototype, EventEmitter.prototype);
+
+},{"./circular_buffer":5,"./connection":6,"./frame":8,"./node_connection":16,"./pipeline":22,"events":18,"underscore":23}],8:[function(require,module,exports){
 var Hand = require("./hand").Hand
   , Pointable = require("./pointable").Pointable
   , Gesture = require("./gesture").Gesture
@@ -1992,177 +2162,7 @@ Frame.Invalid = {
   dump: function() { return this.toString() }
 }
 
-},{"./gesture":9,"./hand":10,"./interaction_box":11,"./matrix":12,"./pointable":13,"./vector":15,"underscore":23}],7:[function(require,module,exports){
-var inNode = typeof(window) === 'undefined';
-
-var Frame = require('./frame').Frame
-  , CircularBuffer = require("./circular_buffer").CircularBuffer
-  , Pipeline = require("./pipeline").Pipeline
-  , EventEmitter = require('events').EventEmitter
-  , _ = require('underscore');
-
-/**
- * Constructs a Controller object.
- *
- * When creating a Controller object, you may optionally pass in options
- * to set the host , set the port, enable gestures, or select the frame event type.
- *
- * ```javascript
- * var controller = new Leap.Controller({
- *   host: '127.0.0.1',
- *   port: 6437,
- *   enableGestures: true,
- *   frameEventName: 'animationFrame'
- * });
- * ```
- *
- * @class Controller
- * @memberof Leap
- * @classdesc
- * The Controller class is your main interface to the Leap Motion Controller.
- *
- * Create an instance of this Controller class to access frames of tracking data
- * and configuration information. Frame data can be polled at any time using the
- * [Controller.frame]{@link Leap.Controller#frame}() function. Call frame() or frame(0) to get the most recent
- * frame. Set the history parameter to a positive integer to access previous frames.
- * A controller stores up to 60 frames in its frame history.
- *
- * Polling is an appropriate strategy for applications which already have an
- * intrinsic update loop, such as a game.
- */
-var Controller = exports.Controller = function(opts) {
-  this.opts = _.defaults(opts || {}, {
-    frameEventName: this.useAnimationLoop() ? 'animationFrame' : 'connectionFrame'
-  });
-  this.history = new CircularBuffer(200);
-  var controller = this;
-  this.lastFrame = Frame.Invalid;
-  this.lastValidFrame = Frame.Invalid;
-  this.lastConnectionFrame = Frame.Invalid;
-  var connectionType = this.opts.connectionType || this.connectionType();
-  this.connection = new connectionType(this.opts);
-  this.accumulatedGestures = [];
-  this.connection.on('frame', function(frame) {
-    if (frame.gestures) {
-      controller.accumulatedGestures = controller.accumulatedGestures.concat(frame.gestures);
-    }
-    controller.processFrame(frame);
-  });
-  this.on(this.opts.frameEventName, function(frame) {
-    controller.processFinishedFrame(frame);
-  });
-
-  // Delegate connection events
-  this.connection.on('ready', function() { controller.emit('ready') });
-  this.connection.on('connect', function() { controller.emit('connect') });
-  this.connection.on('disconnect', function() { controller.emit('disconnect') });
-  this.connection.on('focus', function() { controller.emit('focus') });
-  this.connection.on('blur', function() { controller.emit('blur') });
-}
-
-Controller.prototype.inBrowser = function() {
-  return !inNode;
-}
-
-Controller.prototype.useAnimationLoop = function() {
-  return this.inBrowser() && typeof(chrome) === "undefined";
-}
-
-Controller.prototype.connectionType = function() {
-  return (this.inBrowser() ? require('./connection') : require('./node_connection')).Connection;
-}
-
-Controller.prototype.connect = function() {
-  var controller = this;
-  if (this.connection.connect() && this.inBrowser()) {
-    var callback = function() {
-      controller.emit('animationFrame', controller.lastConnectionFrame);
-      if (controller.opts.supressAnimationLoop !== true) window.requestAnimFrame(callback);
-    }
-    if (controller.opts.supressAnimationLoop !== true) {
-      window.requestAnimFrame(callback);
-    };
-  }
-}
-
-Controller.prototype.disconnect = function() {
-  this.connection.disconnect();
-}
-
-/**
- * Returns a frame of tracking data from the Leap.
- *
- * Use the optional history parameter to specify which frame to retrieve.
- * Call frame() or frame(0) to access the most recent frame; call frame(1) to
- * access the previous frame, and so on. If you use a history value greater
- * than the number of stored frames, then the controller returns an invalid frame.
- *
- * @method frame
- * @memberof Leap.Controller.prototype
- * @param {Number} history The age of the frame to return, counting backwards from
- * the most recent frame (0) into the past and up to the maximum age (59).
- * @returns {Leap.Frame} The specified frame; or, if no history
- * parameter is specified, the newest frame. If a frame is not available at
- * the specified history position, an invalid Frame is returned.
- */
-Controller.prototype.frame = function(num) {
-  return this.history.get(num) || Frame.Invalid;
-}
-
-Controller.prototype.loop = function(callback) {
-  switch (callback.length) {
-    case 1:
-      this.on(this.opts.frameEventName, callback);
-      break;
-    case 2:
-      var controller = this;
-      var scheduler = null;
-      var immediateRunnerCallback = function(frame) {
-        callback(frame, function() {
-          if (controller.lastFrame != frame) {
-            immediateRunnerCallback(controller.lastFrame);
-          } else {
-            controller.once(controller.opts.frameEventName, immediateRunnerCallback);
-          }
-        });
-      }
-      this.once(this.opts.frameEventName, immediateRunnerCallback);
-      break;
-  }
-  this.connect();
-}
-
-Controller.prototype.addStep = function(step) {
-  if (!this.pipeline) this.pipeline = new Pipeline(this);
-  this.pipeline.addStep(step);
-}
-
-Controller.prototype.processFrame = function(frame) {
-  if (this.pipeline) {
-    frame = this.pipeline.run(frame);
-    if (!frame) frame = Frame.Invalid;
-  }
-  this.lastConnectionFrame = frame;
-  this.emit('connectionFrame', frame);
-}
-
-Controller.prototype.processFinishedFrame = function(frame) {
-  this.lastFrame = frame;
-  if (frame.valid) {
-    this.lastValidFrame = frame;
-  }
-  if (frame.gestures) {
-    frame.gestures = this.accumulatedGestures;
-    this.accumulatedGestures = [];
-  }
-  frame.controller = this;
-  frame.historyIdx = this.history.push(frame);
-  this.emit('frame', frame);
-}
-
-_.extend(Controller.prototype, EventEmitter.prototype);
-
-},{"./circular_buffer":5,"./connection":6,"./frame":8,"./node_connection":16,"./pipeline":22,"events":18,"underscore":23}],10:[function(require,module,exports){
+},{"./gesture":9,"./hand":10,"./interaction_box":11,"./matrix":12,"./pointable":13,"./vector":15,"underscore":23}],10:[function(require,module,exports){
 var Pointable = require("./pointable").Pointable
   , Vector = require("./vector").Vector
   , Matrix = require("./matrix").Matrix
@@ -2516,42 +2516,36 @@ var _ = require('underscore');
 /**
  * Constructs a Vector object.
  *
- * Creates a new Vector from the specified Array or Vector. 
+ * Creates a new Vector from the specified Array or Vector.
  * The default constructor sets all components to zero.
  *
  * @class Vector
  * @memberof Leap
  * @classdesc
- * The Vector object represents a three-component mathematical vector or point 
+ * The Vector object represents a three-component mathematical vector or point
  * such as a direction or position in three-dimensional space.
- * 
- * The Leap software employs a right-handed Cartesian coordinate system. 
- * Values given are in units of real-world millimeters. The origin is 
- * centered at the center of the Leap device. The x- and z-axes lie in the 
- * horizontal plane, with the x-axis running parallel to the long edge of 
- * the device. The y-axis is vertical, with positive values increasing upwards 
- * (in contrast to the downward orientation of most computer graphics 
- * coordinate systems). The z-axis has positive values increasing away from the 
+ *
+ * The Leap software employs a right-handed Cartesian coordinate system.
+ * Values given are in units of real-world millimeters. The origin is
+ * centered at the center of the Leap device. The x- and z-axes lie in the
+ * horizontal plane, with the x-axis running parallel to the long edge of
+ * the device. The y-axis is vertical, with positive values increasing upwards
+ * (in contrast to the downward orientation of most computer graphics
+ * coordinate systems). The z-axis has positive values increasing away from the
  * computer screen.
  */
 var Vector = exports.Vector = function(data){
-	
+
 	if(data == null){
 		this[0] = 0;
 		this[1] = 0;
 		this[2] = 0;
-	}
-	else if("x" in data){
+	} else {
 		this[0] = data[0];
 		this[1] = data[1];
 		this[2] = data[2];
 	}
-	else if("0" in data){
-		this[0] = (typeof(data[0]) == "number")?data[0]:0;
-		this[1] = (typeof(data[1]) == "number")?data[1]:0;
-		this[2] = (typeof(data[2]) == "number")?data[2]:0;
-	}
-	
+
 	this.length = 3;
 	/**
 	 * The horizontal component.
@@ -2597,43 +2591,43 @@ var Vector = exports.Vector = function(data){
 var VectorPrototype = {
 	/**
 	 * The angle between this vector and the specified vector in radians.
-	 * 
-	 * The angle is measured in the plane formed by the two vectors. 
-	 * The angle returned is always the smaller of the two conjugate angles. 
-	 * Thus A.angleTo(B) == B.angleTo(A) and is always a positive value less 
+	 *
+	 * The angle is measured in the plane formed by the two vectors.
+	 * The angle returned is always the smaller of the two conjugate angles.
+	 * Thus A.angleTo(B) == B.angleTo(A) and is always a positive value less
 	 * than or equal to pi radians (180 degrees).
-	 * 
+	 *
 	 * If either vector has zero length, then this function returns zero.
-	 * 
+	 *
 	 * ![Vector AngleTo](images/Math_AngleTo.png)
-	 * 
+	 *
 	 * @method AngleTo
 	 * @memberof Leap.Vector.prototype
 	 * @param {Leap.Vector} other A Vector object.
-	 * @returns {Float} The angle between this vector and the specified 
-	 * vector in radians. 
+	 * @returns {Float} The angle between this vector and the specified
+	 * vector in radians.
 	 */
 	angleTo : function(other){
 		var denom = this.magnitude()*other.magnitude();
 		if(denom > 0) return Math.acos(this.dot(other)/denom);
 		else return 0;
 	},
-	
+
 	/**
 	 * The cross product of this vector and the specified vector.
-	 * 
-	 * The cross product is a vector orthogonal to both original vectors. 
-	 * It has a magnitude equal to the area of a parallelogram having the 
-	 * two vectors as sides. The direction of the returned vector is 
+	 *
+	 * The cross product is a vector orthogonal to both original vectors.
+	 * It has a magnitude equal to the area of a parallelogram having the
+	 * two vectors as sides. The direction of the returned vector is
 	 * determined by the right-hand rule. Thus A.cross(B) == -B.cross(A).
-	 * 
+	 *
 	 * ![Vector Cross](images/Math_Cross.png)
-	 * 
+	 *
 	 * @method Cross
 	 * @memberof Leap.Vector.prototype
 	 * @param {Leap.Vector} other A Vector object.
-	 * @returns {Leap.Vector} The cross product of this vector and the 
-	 * specified vector. 
+	 * @returns {Leap.Vector} The cross product of this vector and the
+	 * specified vector.
 	 */
 	cross : function(other){
 		var x = this[1]*other[2] - other[1]*this[2];
@@ -2641,11 +2635,11 @@ var VectorPrototype = {
 		var z = this[0]*other[1] - other[0]*this[1];
 		return new Vector([x,y,z]);
 	},
-	
+
 	/**
-	 * The distance between the point represented by this Vector object 
-	 * and a point represented by the specified Vector object. 
-	 * 
+	 * The distance between the point represented by this Vector object
+	 * and a point represented by the specified Vector object.
+	 *
 	 * @method distanceTo
 	 * @memberof Leap.Vector.prototype
 	 * @param {Leap.Vector} other A Vector object.
@@ -2654,15 +2648,15 @@ var VectorPrototype = {
 	distanceTo : function(other){
 		return this.minus(other).magnitude();
 	},
-	
+
 	/**
 	 * The dot product of this vector with another vector.
-	 * 
-	 * The dot product is the magnitude of the projection of this vector onto 
+	 *
+	 * The dot product is the magnitude of the projection of this vector onto
 	 * the specified vector.
-	 * 
+	 *
 	 * ![Vector Dot](images/Math_Dot.png)
-	 * 
+	 *
 	 * @method dot
 	 * @memberof Leap.Vector.prototype
 	 * @param {Leap.Vector} other A Vector object.
@@ -2671,10 +2665,10 @@ var VectorPrototype = {
 	dot : function(other){
 		return this[0]*other[0] + this[1]*other[1] + this[2]*other[2];
 	},
-	
+
 	/**
 	 * Add vectors component-wise.
-	 * 
+	 *
 	 * @method plus
 	 * @memberof Leap.Vector.prototype
 	 * @param {Leap.Vector} other A Vector object.
@@ -2683,10 +2677,10 @@ var VectorPrototype = {
 	plus : function(other){
 		return new Vector([this[0] + other[0],this[1] + other[1],this[2] + other[2]]);
 	},
-	
+
 	/**
 	 * Subtract vectors component-wise.
-	 * 
+	 *
 	 * @method minus
 	 * @memberof Leap.Vector.prototype
 	 * @param {Leap.Vector} other A Vector object.
@@ -2695,10 +2689,10 @@ var VectorPrototype = {
 	minus : function(other){
 		return new Vector([this[0] - other[0],this[1] - other[1],this[2] - other[2]]);
 	},
-	
+
 	/**
 	 * Multiply vector by a scalar.
-	 * 
+	 *
 	 * @method multiply
 	 * @memberof Leap.Vector.prototype
 	 * @param {Float} scalar
@@ -2707,10 +2701,10 @@ var VectorPrototype = {
 	multiply : function(scalar){
 		return new Vector([this[0]*scalar,this[1]*scalar,this[2]*scalar]);
 	},
-	
+
 	/**
 	 * Divide vector by a scalar.
-	 * 
+	 *
 	 * @method dividedBy
 	 * @memberof Leap.Vector.prototype
 	 * @param {Float} scalar
@@ -2719,14 +2713,14 @@ var VectorPrototype = {
 	dividedBy : function(scalar){
 		return new Vector([this[0]/scalar,this[1]/scalar,this[2]/scalar]);
 	},
-	
+
 	/**
 	 * The magnitude, or length, of this vector.
-	 * 
-	 * The magnitude is the L2 norm, or Euclidean distance between the 
-	 * origin and the point represented by the (x, y, z) components of 
+	 *
+	 * The magnitude is the L2 norm, or Euclidean distance between the
+	 * origin and the point represented by the (x, y, z) components of
 	 * this Vector object.
-	 * 
+	 *
 	 * @method magnitude
 	 * @memberof Leap.Vector.prototype
 	 * @returns {Float} The length of this vector.
@@ -2734,105 +2728,105 @@ var VectorPrototype = {
 	magnitude : function(){
 		return Math.sqrt(this.magnitudeSquared());
 	},
-	
+
 	/**
 	 * The square of the magnitude, or length, of this vector.
-	 * 
+	 *
 	 * @method magnitudeSquared
 	 * @memberof Leap.Vector.prototype
-	 * @returns {Float} The square of the length of this vector. 
+	 * @returns {Float} The square of the length of this vector.
 	 */
 	magnitudeSquared : function(){
 		return Math.pow(this[0],2) + Math.pow(this[1],2) + Math.pow(this[2],2);
 	},
-	
+
 	/**
 	 * A normalized copy of this vector.
-	 * 
-	 * A normalized vector has the same direction as the original 
+	 *
+	 * A normalized vector has the same direction as the original
 	 * vector, but with a length of one.
-	 * 
+	 *
 	 * @method normalized
 	 * @memberof Leap.Vector.prototype
-	 * @returns {Leap.Vector} A Vector object with a length of one, 
-	 * pointing in the same direction as this Vector object. 
+	 * @returns {Leap.Vector} A Vector object with a length of one,
+	 * pointing in the same direction as this Vector object.
 	 */
 	normalized : function(){
 		var magnitude = this.magnitude();
 		if(magnitude > 0) return this.dividedBy(magnitude);
 		else return new Vector();
 	},
-	
+
 	/**
 	 * The pitch angle in radians.
-	 * 
-	 * Pitch is the angle between the negative z-axis and the projection 
-	 * of the vector onto the y-z plane. In other words, pitch represents 
-	 * rotation around the x-axis. If the vector points upward, the 
-	 * returned angle is between 0 and pi radians (180 degrees); if it 
+	 *
+	 * Pitch is the angle between the negative z-axis and the projection
+	 * of the vector onto the y-z plane. In other words, pitch represents
+	 * rotation around the x-axis. If the vector points upward, the
+	 * returned angle is between 0 and pi radians (180 degrees); if it
 	 * points downward, the angle is between 0 and -pi radians.
-	 * 
+	 *
 	 * ![Vector Pitch](images/Math_Pitch_Angle.png)
-	 * 
+	 *
 	 * @method pitch
 	 * @memberof Leap.Vector.prototype
-	 * @returns {Float} The angle of this vector above or below the 
-	 * horizon (x-z plane). 
+	 * @returns {Float} The angle of this vector above or below the
+	 * horizon (x-z plane).
 	 */
 	pitch : function(){
 		return Math.atan2(this[1], -this[2]);
 	},
-	
+
 	/**
 	 * The roll angle in radians.
-	 * 
-	 * Roll is the angle between the y-axis and the projection of 
-	 * the vector onto the x-y plane. In other words, roll represents 
-	 * rotation around the z-axis. If the vector points to the left 
-	 * of the y-axis, then the returned angle is between 0 and pi 
-	 * radians (180 degrees); if it points to the right, the angle is 
+	 *
+	 * Roll is the angle between the y-axis and the projection of
+	 * the vector onto the x-y plane. In other words, roll represents
+	 * rotation around the z-axis. If the vector points to the left
+	 * of the y-axis, then the returned angle is between 0 and pi
+	 * radians (180 degrees); if it points to the right, the angle is
 	 * between 0 and -pi radians.
-	 * 
+	 *
 	 * ![Vector Roll](images/Math_Roll_Angle.png)
-	 * 
-	 * Use this function to get roll angle of the plane to which this 
-	 * vector is a normal. For example, if this vector represents the 
-	 * normal to the palm, then this function returns the tilt or roll 
+	 *
+	 * Use this function to get roll angle of the plane to which this
+	 * vector is a normal. For example, if this vector represents the
+	 * normal to the palm, then this function returns the tilt or roll
 	 * of the palm plane compared to the horizontal (x-z) plane.
-	 * 
+	 *
 	 * @method roll
 	 * @memberof Leap.Vector.prototype
-	 * @returns {Float} The angle of this vector above or below the 
-	 * horizon (x-z plane). 
+	 * @returns {Float} The angle of this vector above or below the
+	 * horizon (x-z plane).
 	 */
 	roll : function(){
 		return Math.atan2(this[0], -this[1]);
 	},
-	
+
 	/**
-	 * The yaw angle in radians. 
-	 * 
-	 * Yaw is the angle between the negative z-axis and the projection 
-	 * of the vector onto the x-z plane. In other words, yaw represents 
-	 * rotation around the y-axis. If the vector points to the right 
-	 * of the negative z-axis, then the returned angle is between 0 and 
-	 * pi radians (180 degrees); if it points to the left, the angle 
+	 * The yaw angle in radians.
+	 *
+	 * Yaw is the angle between the negative z-axis and the projection
+	 * of the vector onto the x-z plane. In other words, yaw represents
+	 * rotation around the y-axis. If the vector points to the right
+	 * of the negative z-axis, then the returned angle is between 0 and
+	 * pi radians (180 degrees); if it points to the left, the angle
 	 * is between 0 and -pi radians.
-	 * 
+	 *
 	 * ![Vector Roll](images/Math_Yaw_Angle.png)
-	 * 
+	 *
 	 * @method yaw
 	 * @memberof Leap.Vector.prototype
-	 * @returns {Float} The angle of this vector to the right or left 
-	 * of the negative z-axis. 
+	 * @returns {Float} The angle of this vector to the right or left
+	 * of the negative z-axis.
 	 */
 	yaw : function(){
 		return Math.atan2(this[0], -this[2]);
 	},
-	
+
 	/**
 	 * Returns the vector as a float array.
-	 * 
+	 *
 	 * @method toArray
 	 * @memberof Leap.Vector.prototype
 	 * @returns {Float[]}
@@ -2840,11 +2834,11 @@ var VectorPrototype = {
 	toArray : function(){
 		return [this[0], this[1], this[2]];
 	},
-	
+
 	/**
-	 * Returns a string containing this vector in a human readable 
-	 * format: (x, y, z). 
-	 * 
+	 * Returns a string containing this vector in a human readable
+	 * format: (x, y, z).
+	 *
 	 * @method toString
 	 * @memberof Leap.Vector.prototype
 	 * @returns {String}
@@ -2852,12 +2846,12 @@ var VectorPrototype = {
 	toString : function(){
 		return "{x:"+this[0]+",y:"+this[1]+",z:"+this[2]+"}";
 	},
-	
+
 	toSource : function(){ this.toString(); },
-	
+
 	/**
 	 * Compare Vector equality component-wise.
-	 * 
+	 *
 	 * @method compare
 	 * @memberof Leap.Vector.prototype
 	 * @param {Leap.Vector} other A Vector object.
@@ -2866,12 +2860,12 @@ var VectorPrototype = {
 	compare : function(other){
 		return this[0]==other[0] && this[1]==other[1] && this[2]==other[2];
 	},
-	
+
 	/**
 	 * Returns true if all of the vector's components are finite.
 	 *
 	 * If any component is NaN or infinite, then this returns false.
-	 * 
+	 *
 	 * @method isValid
 	 * @memberof Leap.Vector.prototype
 	 * @returns {Boolean}
@@ -2896,7 +2890,7 @@ _.extend(Vector.prototype, VectorPrototype);
  */
 Vector.backward = function(){ return new Vector([0,0,1]); };
 /**
- * The unit vector pointing down along the negative y-axis: (0, -1, 0) 
+ * The unit vector pointing down along the negative y-axis: (0, -1, 0)
  *
  * @static
  * @type {Leap.Vector}
@@ -2905,7 +2899,7 @@ Vector.backward = function(){ return new Vector([0,0,1]); };
  */
 Vector.down = function(){ return new Vector([0,-1,0]); };
 /**
- * The unit vector pointing forward along the negative z-axis: (0, 0, -1) 
+ * The unit vector pointing forward along the negative z-axis: (0, 0, -1)
  *
  * @static
  * @type {Leap.Vector}
@@ -2914,7 +2908,7 @@ Vector.down = function(){ return new Vector([0,-1,0]); };
  */
 Vector.forward = function(){ return new Vector([0,0,-1]); };
 /**
- * The unit vector pointing left along the negative x-axis: (-1, 0, 0) 
+ * The unit vector pointing left along the negative x-axis: (-1, 0, 0)
  *
  * @static
  * @type {Leap.Vector}
@@ -2923,7 +2917,7 @@ Vector.forward = function(){ return new Vector([0,0,-1]); };
  */
 Vector.left = function(){ return new Vector([-1,0,0]); };
 /**
- * The unit vector pointing right along the positive x-axis: (1, 0, 0) 
+ * The unit vector pointing right along the positive x-axis: (1, 0, 0)
  *
  * @static
  * @type {Leap.Vector}
@@ -2932,7 +2926,7 @@ Vector.left = function(){ return new Vector([-1,0,0]); };
  */
 Vector.right = function(){ return new Vector([1,0,0]); };
 /**
- * The unit vector pointing up along the positive y-axis: (0, 1, 0) 
+ * The unit vector pointing up along the positive y-axis: (0, 1, 0)
  *
  * @static
  * @type {Leap.Vector}
